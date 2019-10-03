@@ -121,6 +121,10 @@ allocproc(void)
   memset(p->context, 0, sizeof *p->context);
   p->context->eip = (uint)forkret;
 
+  //Set the start_ticks field for the proc p structure to the value of
+  //the global variable ticks.
+  p->start_ticks = ticks;
+
   return p;
 }
 
@@ -575,3 +579,41 @@ procdump(void)
   cprintf("$ ");  // simulate shell prompt
 #endif // CS333_P1
 }
+
+#ifdef CS333_P1
+void
+procdumpP1(struct proc * p, char * state)
+{
+  //Calculate the time ellapsed in ticks (sec and millisec).
+  int time_elapsed = ticks - p->start_ticks;
+  int tick_seconds = time_elapsed/1000;
+  int tick_milliseconds = time_elapsed % 1000;
+
+  cprintf("%d\t%s\t     ", p->pid, p->name);
+
+  //First output the seconds that has passed.
+  cprintf("%d.", tick_seconds);
+
+  //Add additional zeros to the time (if necessary)
+  if(tick_milliseconds < 10) cprintf("00%d\t", tick_milliseconds);
+  else if(tick_milliseconds < 100) cprintf("0%d\t", tick_milliseconds);
+  else cprintf("%d\t", tick_milliseconds);
+
+  cprintf("%s\t%d\t", state, p->sz);
+}
+#endif
+
+/*#ifdef(CS333_P2)
+void
+procdumpP2(struct proc * p, char * state)
+{
+}
+#endif
+
+#ifdef(CS333_P3)
+void
+procdumpP3(struct proc * p, char * state)
+{
+}
+#endif
+*/

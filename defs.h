@@ -116,6 +116,15 @@ struct cpu*     mycpu(void);
 struct proc*    myproc();
 void            pinit(void);
 void            procdump(void);
+#ifdef CS333_P1
+void            procdumpP1(struct proc * p, char * state);
+#endif
+#ifdef CS333_P2
+void            procdumpP2(struct proc * p, char * state);
+#endif
+#ifdef CS333_P3
+void            procdumpP3(struct proc * p, char * state);
+#endif
 void            scheduler(void) __attribute__((noreturn));
 void            sched(void);
 void            setproc(struct proc*);
