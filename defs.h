@@ -9,6 +9,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct uproc;
 
 // bio.c
 void            binit(void);
@@ -110,23 +111,24 @@ int             pipewrite(struct pipe*, char*, int);
 int             cpuid(void);
 void            exit(void);
 int             fork(void);
+#ifdef CS333_P2
+uint            get_gid(void);
+uint            get_uid(void);
+uint            get_ppid(void);
+int             get_procs(int, struct uproc *);
+#endif  //CS333_P2
 int             growproc(int);
 int             kill(int);
 struct cpu*     mycpu(void);
 struct proc*    myproc();
 void            pinit(void);
 void            procdump(void);
-#ifdef CS333_P1
-void            procdumpP1(struct proc * p, char * state);
-#endif
-#ifdef CS333_P2
-void            procdumpP2(struct proc * p, char * state);
-#endif
-#ifdef CS333_P3
-void            procdumpP3(struct proc * p, char * state);
-#endif
 void            scheduler(void) __attribute__((noreturn));
 void            sched(void);
+#ifdef CS333_P2
+int             set_uid(uint);
+int             set_gid(uint);
+#endif  //CS333_P2
 void            setproc(struct proc*);
 void            sleep(void*, struct spinlock*);
 void            userinit(void);

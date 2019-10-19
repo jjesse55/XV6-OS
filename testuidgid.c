@@ -79,6 +79,12 @@ invalidTest(uint nval)
     printf(1, "SUCCESS! The setuid sytem call indicated failure\n");
   else
     printf(2, "FAILURE! The setgid system call indicates success\n");
+  
+  printf(1, "Setting GID to %d. This test should FAIL\n", -1);
+  if (setgid(-1) < 0)
+    printf(1, "SUCCESS! The setuid sytem call indicated failure\n");
+  else
+    printf(2, "FAILURE! The setgid system call indicates success\n");
 }
 
 static int

@@ -230,6 +230,50 @@ testcputime(char * name){
 #ifdef GETPROCS_TEST
 // Fork to 64 process and then make sure we get all when passing table array
 // of sizes 1, 16, 64, 72. NOTE: caller does all forks.
+static void
+output_ticks(int ticks)
+{
+      int num_ticks_per_second = 1000;
+      //Calculate the time ellapsed in ticks (sec and millisec).
+      int time_elapsed = ticks;
+      int tick_seconds = time_elapsed/num_ticks_per_second;
+      int tick_milliseconds = time_elapsed % num_ticks_per_second;
+
+      //First output the seconds that has passed.
+      printf(1, "%d.", tick_seconds);
+
+      //Add additional zeros to the time (if necessary)
+      if(tick_milliseconds < 10) printf(1, "00%d\t", tick_milliseconds);
+      else if(tick_milliseconds < 100) printf(1, "0%d\t", tick_milliseconds);
+      else printf(1, "%d\t", tick_milliseconds);
+}
+
+static void
+display_table(int num_copied, struct uproc * table)
+{
+  if(num_copied < 0)
+    printf(2, "__ERROR__\n");
+  else {
+    printf(1, "\nPID\tName\t\tUID\tGID\tPPID\tElapsed\tCPU\tState\tSize\n");
+
+    for(int i = 0; i < num_copied; ++i)
+    {
+      printf(1, "%d\t%s\t", table[i].pid, table[i].name);
+      if(strlen(table[i].name) < 9)
+        printf(1, "\t");
+      printf(1, "%d\t%d\t", table[i].uid, table[i].gid);
+
+      printf(1, "%d\t", table[i].ppid);
+      
+      output_ticks(table[i].elapsed_ticks);
+      output_ticks(table[i].CPU_total_ticks);
+
+      //printf(1, "%d\t", table[i].CPU_total_ticks);
+      printf(1, "%s\t%d\t\n", table[i].state, table[i].size);
+    }
+  }
+
+}
 static int
 testprocarray(int max, int expected_ret){
   struct uproc * table;
@@ -248,6 +292,8 @@ testprocarray(int max, int expected_ret){
   else{
     printf(2, "getprocs() was asked for %d processes and returned %d. SUCCESS\n", max, expected_ret);
   }
+  printf(1, "Here is the procs that were copied:\n");
+  display_table(ret, table);
   free(table);
   return success;
 }
@@ -289,6 +335,9 @@ testgetprocs(){
     success  = testinvalidarray();
     success |= testprocarray( 1,  1);
     success |= testprocarray(16, 16);
+    //Sleep for five seconds to compare the output.
+    printf(1,"Now this is the output of control-p...\n");
+    sleep(5 * TPS);  // now type control-p
     success |= testprocarray(64, 64);
     success |= testprocarray(72, 64);
     if (success == 0)
@@ -351,9 +400,10 @@ testtime(void){
 
   printf(1,"\n%s\n", arg1[0]);
   testtimewitharg(arg1);
-  printf(1,"\n%s %s\n", arg2[0], arg2[1]);
-  testtimewitharg(arg2);
+  //printf(1,"\n%s %s\n", arg2[0], arg2[1]);
+  //testtimewitharg(arg2);
   printf(1,"\n%s %s\n", arg3[0], arg3[1]);
+  testtimewitharg(arg3);
   testtimewitharg(arg3);
   printf(1,"\n%s %s %s %s\n", arg4[0], arg4[1], arg4[2], arg4[3]);
   testtimewitharg(arg4);

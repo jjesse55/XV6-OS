@@ -6,6 +6,9 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#ifdef CS333_P2
+#include "uproc.h"
+#endif
 
 static char *states[] = {
 [UNUSED]    "unused",
@@ -98,6 +101,14 @@ allocproc(void)
   }
   p->state = EMBRYO;
   p->pid = nextpid++;
+
+  //Set the amount of time that the process has been both scheduled
+  //and running in the cpu to 0.
+#ifdef CS333_P2
+  p->cpu_ticks_total = 0;
+  p->cpu_ticks_in = 0;
+#endif  //CS333_P2
+
   release(&ptable.lock);
 
   // Allocate kernel stack.
@@ -151,6 +162,11 @@ userinit(void)
   p->tf->eflags = FL_IF;
   p->tf->esp = PGSIZE;
   p->tf->eip = 0;  // beginning of initcode.S
+
+#ifdef CS333_P2
+  p->uid = DEFAULT_UID;
+  p->gid = DEFAULT_GID;
+#endif  //CS333_P2
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
@@ -211,6 +227,12 @@ fork(void)
   np->sz = curproc->sz;
   np->parent = curproc;
   *np->tf = *curproc->tf;
+
+  //Add the copying process for the UID and GID for project 2.
+#ifdef CS333_P2
+  np->uid = curproc->uid;
+  np->gid = curproc->gid;
+#endif  //CS333_P2
 
   // Clear %eax so that fork returns 0 in the child.
   np->tf->eax = 0;
@@ -365,6 +387,9 @@ scheduler(void)
       c->proc = p;
       switchuvm(p);
       p->state = RUNNING;
+#ifdef CS333_P2
+      p->cpu_ticks_in = ticks;
+#endif  //CS333_P2
       swtch(&(c->scheduler), p->context);
       switchkvm();
 
@@ -395,6 +420,10 @@ sched(void)
 {
   int intena;
   struct proc *p = myproc();
+
+#ifdef CS333_P2
+  p->cpu_ticks_total += ticks - p->cpu_ticks_in;
+#endif  //CS333_P2
 
   if(!holding(&ptable.lock))
     panic("sched ptable.lock");
@@ -528,6 +557,64 @@ kill(int pid)
 // Runs when user types ^P on console.
 // No lock to avoid wedging a stuck machine further.
 
+#ifdef CS333_P1
+static void
+procdumpP1(struct proc * p, char * state)
+{
+  int num_ticks_per_second = 1000;
+  //Calculate the time ellapsed in ticks (sec and millisec).
+  int time_elapsed = ticks - p->start_ticks;
+  int tick_seconds = time_elapsed/num_ticks_per_second;
+  int tick_milliseconds = time_elapsed % num_ticks_per_second;
+
+  //First output the seconds that has passed.
+  cprintf("%d.", tick_seconds);
+
+  //Add additional zeros to the time (if necessary)
+  if(tick_milliseconds < 10) cprintf("00%d\t", tick_milliseconds);
+  else if(tick_milliseconds < 100) cprintf("0%d\t", tick_milliseconds);
+  else cprintf("%d\t", tick_milliseconds);
+}
+#endif  //CS333_P2
+
+#ifdef CS333_P2
+static void
+procdumpP2(struct proc * p, char * state)
+{
+  cprintf("%d\t%d\t", p->uid, p->gid);
+  if(!p->parent)
+    cprintf("%d\t", p->pid);
+  else
+    cprintf("%d\t", p->parent->pid);
+  procdumpP1(p, state);
+
+  //cprintf("%d\t", p->cpu_ticks_total);
+  int num_ticks_per_second = 1000;
+
+  //Calculate the time ellapsed in ticks (sec and millisec).
+  int time_elapsed = p->cpu_ticks_total;
+  int tick_seconds = time_elapsed/num_ticks_per_second;
+  int tick_milliseconds = time_elapsed % num_ticks_per_second;
+
+  //First output the seconds that has passed.
+  cprintf("%d.", tick_seconds);
+
+  //Add additional zeros to the time (if necessary)
+  if(tick_milliseconds < 10) cprintf("00%d\t", tick_milliseconds);
+  else if(tick_milliseconds < 100) cprintf("0%d\t", tick_milliseconds);
+  else cprintf("%d\t", tick_milliseconds);
+}
+#endif  //CS333_P2
+
+/*
+#ifdef(CS333_P3)
+static void
+procdumpP3(struct proc * p, char * state)
+{
+}
+#endif  //CS333_P2
+*/
+
 void
 procdump(void)
 {
@@ -535,15 +622,15 @@ procdump(void)
   struct proc *p;
   char *state;
   uint pc[10];
-
+  
 #if defined(CS333_P4)
-#define HEADER "\nPID\tName         UID\tGID\tPPID\tPrio\tElapsed\tCPU\tState\tSize\t PCs\n"
+#define HEADER "\nPID\tName\t\tUID\tGID\tPPID\tPrio\tElapsed\tCPU\tState\tSize\t PCs\n"
 #elif defined(CS333_P3)
-#define HEADER "\nPID\tName         UID\tGID\tPPID\tElapsed\tCPU\tState\tSize\t PCs\n"
+#define HEADER "\nPID\tName\t\tUID\tGID\tPPID\tElapsed\tCPU\tState\tSize\t PCs\n"
 #elif defined(CS333_P2)
-#define HEADER "\nPID\tName         UID\tGID\tPPID\tElapsed\tCPU\tState\tSize\t PCs\n"
+#define HEADER "\nPID\tName\t\tUID\tGID\tPPID\tElapsed\tCPU\tState\tSize\t PCs\n"
 #elif defined(CS333_P1)
-#define HEADER "\nPID\tName         Elapsed\tState\tSize\t PCs\n"
+#define HEADER "\nPID\tName\t\tElapsed\tState\tSize\t PCs\n"
 #else
 #define HEADER "\n"
 #endif
@@ -551,12 +638,19 @@ procdump(void)
   cprintf(HEADER);  // not conditionally compiled as must work in all project states
 
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    if(p->state == UNUSED)
+    if(p->state == UNUSED)  {
       continue;
+    }
     if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
       state = states[p->state];
     else
       state = "???";
+  
+#ifdef CS333_p1
+    cprintf("%d\t%s\t", p->pid, p->name);
+    if(strlen(p->name) < 9)
+      cprintf("\t");
+#endif
 
 #if defined(CS333_P3)
     procdumpP3(p, state);
@@ -568,11 +662,16 @@ procdump(void)
     cprintf("%d\t%s\t%s\t", p->pid, p->name, state);
 #endif
 
+#ifdef CS333_p1
+    cprintf("%s\t%d\t", state, p->sz);
+#endif
+
     if(p->state == SLEEPING){
       getcallerpcs((uint*)p->context->ebp+2, pc);
       for(i=0; i<10 && pc[i] != 0; i++)
         cprintf(" %p", pc[i]);
     }
+
     cprintf("\n");
   }
 #ifdef CS333_P1
@@ -580,40 +679,106 @@ procdump(void)
 #endif // CS333_P1
 }
 
-#ifdef CS333_P1
-void
-procdumpP1(struct proc * p, char * state)
+
+//Helper functions for the getter and setter function calls.
+//Helps with getting/setting uid, gid, and ppid values.
+#ifdef CS333_P2
+uint
+get_uid(void)
 {
-  //Calculate the time ellapsed in ticks (sec and millisec).
-  int time_elapsed = ticks - p->start_ticks;
-  int tick_seconds = time_elapsed/1000;
-  int tick_milliseconds = time_elapsed % 1000;
+  uint uid;
+  acquire(&ptable.lock);
+  uid = myproc()->uid;
+  release(&ptable.lock);
 
-  cprintf("%d\t%s\t     ", p->pid, p->name);
-
-  //First output the seconds that has passed.
-  cprintf("%d.", tick_seconds);
-
-  //Add additional zeros to the time (if necessary)
-  if(tick_milliseconds < 10) cprintf("00%d\t", tick_milliseconds);
-  else if(tick_milliseconds < 100) cprintf("0%d\t", tick_milliseconds);
-  else cprintf("%d\t", tick_milliseconds);
-
-  cprintf("%s\t%d\t", state, p->sz);
+  return uid;
 }
-#endif
 
-/*#ifdef(CS333_P2)
-void
-procdumpP2(struct proc * p, char * state)
+uint
+get_gid(void)
 {
-}
-#endif
+  uint gid;
+  acquire(&ptable.lock);
+  gid =  myproc()->gid;
+  release(&ptable.lock);
 
-#ifdef(CS333_P3)
-void
-procdumpP3(struct proc * p, char * state)
-{
+  return gid;
 }
-#endif
-*/
+
+uint
+get_ppid(void)
+{
+  uint ppid;
+  struct proc * parent;
+
+  acquire(&ptable.lock);
+  parent = myproc()->parent;
+
+  //Because in this case we want the pid of the same process
+  //to be displayed.
+  if(!parent)
+    parent = myproc();
+  ppid = parent->pid;
+  release(&ptable.lock);
+
+  return ppid;
+}
+
+int
+set_uid(uint uid)
+{
+  acquire(&ptable.lock);
+  myproc()->uid = uid;
+  release(&ptable.lock);
+
+  return 0;
+}
+
+int
+set_gid(uint gid)
+{
+  acquire(&ptable.lock);
+  myproc()->gid = gid;
+  release(&ptable.lock);
+
+  return 0;
+}
+
+
+int
+get_procs(int max, struct uproc *table)
+{
+  char *state;
+  int count = 0;
+
+  acquire(&ptable.lock);
+  for(struct proc *p = ptable.proc; count < max && p < &ptable.proc[NPROC]; p++){
+    if(p->state == UNUSED || p->state == EMBRYO)  {
+      continue;
+    }
+    if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
+      state = states[p->state];
+    else
+      state = "???";
+
+    //copy over all the data
+    table[count].pid = p->pid;
+    table[count].uid = p->uid;
+    table[count].gid = p->gid;
+    if(!p->parent)
+      table[count].ppid = p->pid;
+    else
+      table[count].ppid = p->parent->pid;
+    table[count].elapsed_ticks = ticks - p->start_ticks;
+    table[count].CPU_total_ticks= p->cpu_ticks_total;
+    strncpy(table[count].state, state, (strlen(state) + 1));
+    table[count].size = p->sz;
+    strncpy(table[count].name, p->name, (strlen(state) + 1));
+
+    ++count;
+  }
+  
+  release(&ptable.lock);
+  return count;
+}
+#endif  //CS333_P2

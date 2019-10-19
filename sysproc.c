@@ -9,6 +9,9 @@
 #ifdef PDX_XV6
 #include "pdx-kernel.h"
 #endif // PDX_XV6
+#ifdef CS333_P2
+#include "uproc.h"
+#endif
 
 int
 sys_fork(void)
@@ -112,3 +115,68 @@ sys_date(void)
   return 0;
 }
 #endif
+
+
+//Implement the set sys calls for uid and gid as well as the
+//getters for uid, gid, and ppid.
+#ifdef CS333_P2
+int
+sys_getuid(void)
+{
+  return (int) get_uid();
+}
+
+int
+sys_getgid(void)
+{
+  return (int) get_gid();
+}
+
+int
+sys_getppid(void)
+{
+  return (int) get_ppid();
+}
+
+int
+sys_setuid(void)
+{
+  int uid;
+  if(argint(0, &uid) < 0)
+    return -1;
+  //The min and max values allowed for uid values.
+  if(uid < 0 || uid > 32767)
+    return -1;
+
+  uint uint_uid = (uint) uid;
+  return set_uid(uint_uid);
+}
+
+int
+sys_setgid(void)
+{
+  int gid;
+  if(argint(0, &gid) < 0)
+    return -1;
+  //The min and max values allowed for gid values.
+  if(gid < 0 || gid > 32767)
+    return -1;
+
+  uint uint_gid = (uint) gid;
+  return set_gid(uint_gid);
+}
+
+
+int
+sys_getprocs(void)
+{
+  int max;
+  struct uproc * table;
+  if(argint(0, &max) < 0)
+    return -1;
+  if(argptr(1, (void*)&table, (sizeof(struct uproc)*max)) < 0)
+    return -1;
+
+  return get_procs(max, table);
+}
+#endif  //CS333_P2
