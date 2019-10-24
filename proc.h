@@ -49,6 +49,9 @@ struct proc {
   uint cpu_ticks_in;            //ticks when scheduled.
 #endif
   struct proc *parent;         // Parent process. NULL indicates no parent
+#ifdef
+  struct proc *next;           //Ptr to the next processs in the same state list.
+#endif
   struct trapframe *tf;        // Trap frame for current syscall
   struct context *context;     // swtch() here to run process
   void *chan;                  // If non-zero, sleeping on chan
