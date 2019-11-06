@@ -202,6 +202,9 @@ void
 consoleintr(int (*getc)(void))
 {
   int c, doprocdump = 0;
+#ifdef CS333_P3
+  int doready = 0, dofree = 0, dosleep = 0, dozombie = 0;
+#endif
 #ifdef PDX_XV6
   int shutdown = FALSE;
 #endif // PDX_XV6
@@ -213,6 +216,24 @@ consoleintr(int (*getc)(void))
       // procdump() locks cons.lock indirectly; invoke later
       doprocdump = 1;
       break;
+#ifdef CS333_P3
+    //Output the PIDs of all current processes ready to run.
+    case C('R'):
+      doready = 1;
+      break;
+    //Output the number of processes currently on the free list.
+    case C('F'):
+      dofree = 1;
+      break;
+    //Output the PIDs of all current processes on the sleep list.
+    case C('S'):
+      dosleep = 1;
+      break;
+    //Output the PIDs and PPIDs of all current processes on the zombie list.
+    case C('Z'):
+      dozombie = 1;
+      break;
+#endif  //CS333_P3
 #ifdef PDX_XV6
     case C('D'):
       shutdown = TRUE;
@@ -252,6 +273,16 @@ consoleintr(int (*getc)(void))
   if(doprocdump) {
     procdump();  // now call procdump() wo. cons.lock held
   }
+#ifdef CS333_P3
+  if(doready)
+    proc_ready();
+  if(dofree)
+    proc_free();
+  if(dosleep)
+    proc_sleep();
+  if(dozombie)
+    proc_zombie();
+#endif  //CS333_P3
 }
 
 int
