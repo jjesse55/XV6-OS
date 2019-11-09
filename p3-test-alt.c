@@ -141,6 +141,10 @@ controlRTest(void) {
 void
 killTest(void) {
   int pid;
+
+  //Test the kill and wait functions to prove that the kill function
+  //moves a process to the zombie list and that the wait system call
+  //correctly moves that process on the zombie list to the free/unused list.
   pid = fork();
   if (pid < 0) {
     printf(1, "Failure in %s %s line %d", __FILE__, __FUNCTION__, __LINE__);
@@ -156,6 +160,27 @@ killTest(void) {
     wait();
     printf(1, "Wait() has been called on Child Process %d. Use control-p, z, f to show that is removed from zombie list and added to unused.\nYou have 10 sec\n", pid);
     sleep(10 * TPS);
+  }
+
+    //Now test to show that when another child process is created that
+    //when it makes the call to exit instead of the parent calling kill()
+    //on it, that it is also correctly moved to the zombie list as well
+    //while the parent is waiting on it.
+    printf(1, "Now, repeating process except allowing the child to call exit() this time to move itself to the zombie list.\n");
+    pid = fork();
+  
+  if (pid < 0) {
+    printf(1, "Failure in %s %s line %d", __FILE__, __FUNCTION__, __LINE__);
+  } else if(pid == 0) {
+    printf(1, "In 5 seconds the child is going to exit.\n");
+    sleep(5*TPS);
+    printf(1, "Child is exiting. Press ctrl-z to show that this process has now been moved to the zombie list.\n");
+    exit();
+  } else {
+    sleep(10*TPS);
+    printf(1, "Parent is now calling wait on the zombie child process\n");
+    wait();
+    sleep(5*TPS);
   }
 }
 
