@@ -942,6 +942,10 @@ procdumpP2(struct proc * p, char * state)
     cprintf("%d\t", p->parent->pid);
   procdumpP1(p, state);
 
+#ifdef CS333_P4
+  cprintf("%d\t", p->prio);
+#endif
+
   //cprintf("%d\t", p->cpu_ticks_total);
   int num_ticks_per_second = 1000;
 
