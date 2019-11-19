@@ -3,6 +3,15 @@
  * The contents are intended to be visible in both user and kernel space.
  */
 
+#ifdef CS333_P2
+#define DEFAULT_UID 0
+#define DEFAULT_GID 0
+#endif
+
+#ifdef CS333_P4
+#define MAXPRIO 4
+#endif
+
 #ifndef PDX_INCLUDE
 #define PDX_INCLUDE
 
