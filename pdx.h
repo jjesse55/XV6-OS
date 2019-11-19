@@ -10,6 +10,7 @@
 
 #ifdef CS333_P4
 #define MAXPRIO 4
+#define DEFAULT_BUDGET 100
 #endif
 
 #ifndef PDX_INCLUDE

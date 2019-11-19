@@ -36,6 +36,10 @@ static struct {
 #ifdef CS333_P3
   struct ptrs list[statecount];
 #endif  //CS333_P3
+#ifdef CS333_P4
+  struct ptrs ready[MAXPRIO + 1];
+  uint PromoteAtTime;
+#endif  //CS333_P4
 } ptable;
 
 static struct proc *initproc;
@@ -973,7 +977,7 @@ procdump(void)
   uint pc[10];
   
 #if defined(CS333_P4)
-#define HEADER "\nPID\tName\t\tUID\tGID\tPPID\tPrio\tElapsed\tCPU\tState\tSize\t PCs\n"
+#define HEADER "\nPID\tName\t\tUID\tGID\tPPID\tPrio\tElapsed\tCPU\tState\tSize\tPCs\n"
 #elif defined(CS333_P3)
 #define HEADER "\nPID\tName\t\tUID\tGID\tPPID\tElapsed\tCPU\tState\tSize\tPCs\n"
 #elif defined(CS333_P2)
