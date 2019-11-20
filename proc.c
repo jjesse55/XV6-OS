@@ -108,7 +108,7 @@ myproc(void) {
 // If found, change state to EMBRYO and initialize
 // state required to run in the kernel.
 // Otherwise return 0.
-  static struct proc*
+static struct proc*
 allocproc(void)
 {
   struct proc *p;
@@ -244,7 +244,11 @@ userinit(void)
     panic("Process not found when removing from state list");
   assertState(p, EMBRYO, __FUNCTION__, __LINE__);
   p->state = RUNNABLE;
+#ifdef CS333_P4
+  stateListAdd(&ptable.ready[MAXPRIO], p);
+#else
   stateListAdd(&ptable.list[p->state], p);
+#endif
 #else
   p->state = RUNNABLE;
 #endif  //CS333_P3
@@ -335,7 +339,11 @@ fork(void)
     panic("Process not found when removing from state list");
   assertState(np, EMBRYO, __FUNCTION__, __LINE__);
   np->state = RUNNABLE;
+#ifdef CS333_P4
+  stateListAdd(&ptable.ready[MAXPRIO], np);
+#else
   stateListAdd(&ptable.list[np->state], np);
+#endif
 #else
   np->state = RUNNABLE;
 #endif
@@ -476,6 +484,9 @@ wait(void)
         p->parent = 0;
         p->name[0] = 0;
         p->killed = 0;
+#ifdef CS333_P4
+        p->prio = 0;
+#endif
         if(stateListRemove(&ptable.list[p->state], p) < 0)
           panic("Process not found when removing from state list");
         assertState(p, ZOMBIE, __FUNCTION__, __LINE__);
@@ -702,7 +713,11 @@ yield(void)
     panic("Process not found when removing from state list");
   assertState(curproc, RUNNING, __FUNCTION__, __LINE__);
   curproc->state = RUNNABLE;
+#ifdef CS333_P4
+  stateListAdd(&ptable.ready[curproc->prio], curproc);
+#else
   stateListAdd(&ptable.list[curproc->state], curproc);
+#endif
   sched();
   release(&ptable.lock);
 }
@@ -832,7 +847,11 @@ wakeup1(void *chan)
         panic("Process not found when removing from state list");
       assertState(p, SLEEPING, __FUNCTION__, __LINE__);
       p->state = RUNNABLE;
+#ifdef CS333_P4
+      stateListAdd(&ptable.ready[p->prio], p);
+#else
       stateListAdd(&ptable.list[p->state], p);
+#endif
     }
 
     if(p == ptable.list[SLEEPING].tail)
