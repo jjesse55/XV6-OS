@@ -117,11 +117,20 @@ uint            get_uid(void);
 uint            get_ppid(void);
 int             get_procs(int, struct uproc *);
 #endif  //CS333_P2
+#ifdef CS333_P4
+int             get_priority(int);
+#endif
 int             growproc(int);
 int             kill(int);
 struct cpu*     mycpu(void);
 struct proc*    myproc();
 void            pinit(void);
+#ifdef CS333_P3
+void             proc_free(void);
+void            proc_ready(void);
+void            proc_sleep(void);
+void            proc_zombie(void);
+#endif
 void            procdump(void);
 void            scheduler(void) __attribute__((noreturn));
 void            sched(void);
@@ -129,12 +138,16 @@ void            sched(void);
 int             set_uid(uint);
 int             set_gid(uint);
 #endif  //CS333_P2
+#ifdef CS333_P4
+int             set_priority(int, int);
+#endif
 void            setproc(struct proc*);
 void            sleep(void*, struct spinlock*);
 void            userinit(void);
 int             wait(void);
 void            wakeup(void*);
 void            yield(void);
+
 
 // swtch.S
 void            swtch(struct context**, struct context*);

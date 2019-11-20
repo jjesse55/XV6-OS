@@ -180,3 +180,34 @@ sys_getprocs(void)
   return get_procs(max, table);
 }
 #endif  //CS333_P2
+
+#ifdef CS333_P4
+int
+sys_setpriority(void)
+{
+  int pid, prio;
+  if(argint(0, &pid) < 0 || argint(1, &prio) < 0)
+    return -1;
+
+  //Test a valid pid value passes in against the min and max values.
+  //Also, test to make sure the priority value passed in is valid as well.
+  if(pid < 0 || pid > 32767 || prio < 0 || prio > MAXPRIO)
+    return -1;
+
+  return set_priority(pid, prio);
+}
+
+int
+sys_getpriority(void)
+{
+  int pid;
+  if(argint(0, &pid) < 0)
+    return -1;
+  
+  //Test a valid pid value passes in against the min and max values.
+  if(pid < 0 || pid > 32767)
+    return -1;
+
+  return get_priority(pid);
+}
+#endif
