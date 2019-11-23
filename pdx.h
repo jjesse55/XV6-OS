@@ -9,8 +9,9 @@
 #endif
 
 #ifdef CS333_P4
-#define MAXPRIO 4
-#define DEFAULT_BUDGET 100
+#define MAXPRIO 6
+#define DEFAULT_BUDGET 10
+#define TICKS_TO_PROMOTE 100
 #endif
 
 #ifndef PDX_INCLUDE

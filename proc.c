@@ -206,6 +206,11 @@ userinit(void)
   acquire(&ptable.lock);
   initProcessLists();
   initFreeList();
+
+#ifdef CS333_P4
+  ptable.PromoteAtTime = ticks + TICKS_TO_PROMOTE;
+#endif
+
   release(&ptable.lock);
 #endif
 
@@ -230,6 +235,11 @@ userinit(void)
   p->gid = DEFAULT_GID;
 #endif  //CS333_P2
 
+#ifdef CS333_P4
+  p->prio = MAXPRIO;
+  p->budget = DEFAULT_BUDGET;
+#endif
+
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
@@ -245,7 +255,7 @@ userinit(void)
   assertState(p, EMBRYO, __FUNCTION__, __LINE__);
   p->state = RUNNABLE;
 #ifdef CS333_P4
-  stateListAdd(&ptable.ready[MAXPRIO], p);
+  stateListAdd(&ptable.ready[p->prio], p);
 #else
   stateListAdd(&ptable.list[p->state], p);
 #endif
@@ -340,7 +350,7 @@ fork(void)
   assertState(np, EMBRYO, __FUNCTION__, __LINE__);
   np->state = RUNNABLE;
 #ifdef CS333_P4
-  stateListAdd(&ptable.ready[MAXPRIO], np);
+  stateListAdd(&ptable.ready[p->prio], np);
 #else
   stateListAdd(&ptable.list[np->state], np);
 #endif
@@ -486,6 +496,7 @@ wait(void)
         p->killed = 0;
 #ifdef CS333_P4
         p->prio = 0;
+        p->budget = DEFAULT_BUDGET;
 #endif
         if(stateListRemove(&ptable.list[p->state], p) < 0)
           panic("Process not found when removing from state list");
@@ -560,7 +571,93 @@ wait(void)
 //  - swtch to start running that process
 //  - eventually that process transfers control
 //      via swtch back to the scheduler.
-#ifdef CS333_P3
+#if defined(CS333_P4)
+void
+scheduler(void)
+{
+  struct proc *p;
+  struct cpu *c = mycpu();
+  c->proc = 0;
+#ifdef PDX_XV6
+  int idle;  // for checking if processor is idle
+#endif // PDX_XV6
+
+  for(;;){
+    // Enable interrupts on this processor.
+    sti();
+
+#ifdef PDX_XV6
+    idle = 1;  // assume idle unless we schedule a process
+#endif // PDX_XV6
+    // Loop over process table looking for process to run.
+    acquire(&ptable.lock);
+
+    //Time to promote all processes.
+    if(ptable.PromoteAtTime <= ticks) {
+      //This function promotes all processes that are not on the MAXPRIO
+      //queue, increments the prio field of each process that gets
+      //promoted, and resets budgets to default.
+      promoteAllProcs();
+
+      //Then, reset the next time that this promotion for all processes
+      //is to occur.
+      ptable.PromoteAtTime = ticks + TICKS_TO_PROMOTE;
+    }
+
+    //I will represent the prio of the queue that the process to run
+    //was found on (if one was found at all).
+    int i;
+    struct proc * p = NULL;
+
+    //Try to find a process to run.
+    for(i = MAXPRIO; !p && i >= 0; --i) {
+      p = ptable.ready[i].head;
+      if(p)
+        break;
+    }
+
+    if(p) {
+
+      // Switch to chosen process.  It is the process's job
+      // to release ptable.lock and then reacquire it
+      // before jumping back to us.
+#ifdef PDX_XV6
+      idle = 0;  // not idle this timeslice
+#endif // PDX_XV6
+      c->proc = p;
+      switchuvm(p);
+      if(stateListRemove(&ptable.list[p->prio], p) < 0)
+        panic("Process not found when removing from state list");
+      assertState(p, RUNNABLE, __FUNCTION__, __LINE__);
+      
+      //This next line of code is to assert that it was on the correct
+      //priority queue. I is the priority queue it was pulled off of
+      //from the above for loop.
+      assertPriority(p, i, __FUNCTION__, __LINE__);
+
+      p->state = RUNNING;
+      stateListAdd(&ptable.list[p->state], p);
+#ifdef CS333_P2
+      p->cpu_ticks_in = ticks;
+#endif  //CS333_P2
+      swtch(&(c->scheduler), p->context);
+      switchkvm();
+
+      // Process is done running for now.
+      // It should have changed its p->state before coming back.
+      c->proc = 0;
+    }
+    release(&ptable.lock);
+#ifdef PDX_XV6
+    // if idle, wait for next interrupt
+    if (idle) {
+      sti();
+      hlt();
+    }
+#endif // PDX_XV6
+  }
+}
+#elif defined(CS333_P3)
 void
 scheduler(void)
 {
@@ -898,7 +995,12 @@ kill(int pid)
           panic("Process not found when removing from state list");
         assertState(p, SLEEPING, __FUNCTION__, __LINE__);
         p->state = RUNNABLE;
+
+#ifdef CS333_P4
+        stateListAdd(&ptable.ready[p->prio], p);
+#else
         stateListAdd(&ptable.list[p->state], p);
+#endif
       }
       release(&ptable.lock);
       return 0;
@@ -1267,6 +1369,63 @@ assertState(struct proc *p, enum procstate state, const char * func, int line)
       states[p->state], states[state], func, line);
   panic("Error: Process state incorrect in assertState()");
 }
+
+#ifdef CS333_P4
+static void
+assertPriority(struct proc * p, int prio, const char * func, int line)
+{
+  if(p->prio == prio)
+    return;
+  cprintf("Error: proc priority is %d and should be %d.\nCalled from %s line %d\n",
+      p->prio, prio, func, line);
+  panic("Error: Process priority incorrect in assertPriority()");
+}
+
+/*
+static void
+setDefaultBudgets()
+{
+  struct proc * p;
+
+  for(int i = MAXPRIO - 1; i >= 0; --i) {
+    for(p = ptable.ready[i].head; p != NULL; p = p->next;)
+      p->budget = DEFAULT_BUDGET;
+  }
+}
+*/
+
+static void
+promoteAllProcs()
+{
+  struct proc * p;
+
+  for(int i = MAXPRIO; i >= 1; --i) {
+    //No processes in the next lowest priority queue to promote.
+    if(!ptable.ready[i - 1].head)
+      continue;
+
+    //Increase the prio values for all the process about to be placed
+    //in a higher prio list. Set default budgets as well.
+    for(p = ptable.ready[i - 1].head; p != NULL; p = p->next) {
+      ++p->prio;
+      p->budget = DEFAULT_BUDGET;
+    }
+
+    //List is empty so add at head.
+    if(!ptable.ready[i].head)
+      ptable.ready[i].head = ptable.ready[i - 1].head;
+
+    //List is not empty, so add at the end (tail->next).
+    else
+      ptable.ready[i].tail->next = ptable.ready[i - 1].head;
+    
+    ptable.ready[i].tail = ptable.ready[i - 1].tail;
+
+    ptable.ready[i - 1].head = NULL;
+    ptable.ready[i - 1].tail = NULL;
+  }
+}
+#endif
 
 void
 proc_free(void)
