@@ -99,3 +99,13 @@ testuidgid.c
 testuidgid.txt
 p2testsuite.c
 p4-test.c
+
+# CS333 additions for Mark Morrissey
+ps.c
+time.c
+uproc.h
+p2-test.c
+P3-test.c
+p3-test-alt.c
+setpriority.c
+getpriority.c

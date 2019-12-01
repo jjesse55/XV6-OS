@@ -123,7 +123,7 @@ allocproc(void)
     return 0;
   }
   if(stateListRemove(&ptable.list[p->state], p) < 0)
-    panic("Process not found when removing from state list");
+    panic("Process not found when removing from state list (allocproc)");
   assertState(p, UNUSED, __FUNCTION__, __LINE__);
   p->state = EMBRYO;
   stateListAdd(&ptable.list[p->state], p);
@@ -152,6 +152,7 @@ allocproc(void)
 
 #ifdef CS333_P4
   p->prio = MAXPRIO;
+  p->budget = DEFAULT_BUDGET;
 #endif  //CS333_P4
 
   release(&ptable.lock);
@@ -235,11 +236,6 @@ userinit(void)
   p->gid = DEFAULT_GID;
 #endif  //CS333_P2
 
-#ifdef CS333_P4
-  p->prio = MAXPRIO;
-  p->budget = DEFAULT_BUDGET;
-#endif
-
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
@@ -251,7 +247,7 @@ userinit(void)
 
 #ifdef CS333_P3
   if(stateListRemove(&ptable.list[p->state], p) < 0)
-    panic("Process not found when removing from state list");
+    panic("Process not found when removing from state list (userinit)");
   assertState(p, EMBRYO, __FUNCTION__, __LINE__);
   p->state = RUNNABLE;
 #ifdef CS333_P4
@@ -310,7 +306,7 @@ fork(void)
 #ifdef CS333_P3
     acquire(&ptable.lock);
     if(stateListRemove(&ptable.list[np->state], np) < 0)
-      panic("Process not found when removing from state list");
+      panic("Process not found when removing from state list (fork)");
     assertState(np, EMBRYO, __FUNCTION__, __LINE__);
     np->state = UNUSED;
     stateListAdd(&ptable.list[np->state], np);
@@ -346,11 +342,11 @@ fork(void)
 
 #ifdef CS333_P3
   if(stateListRemove(&ptable.list[np->state], np) < 0)
-    panic("Process not found when removing from state list");
+    panic("Process not found when removing from state list (fork 2)");
   assertState(np, EMBRYO, __FUNCTION__, __LINE__);
   np->state = RUNNABLE;
 #ifdef CS333_P4
-  stateListAdd(&ptable.ready[p->prio], np);
+  stateListAdd(&ptable.ready[np->prio], np);
 #else
   stateListAdd(&ptable.list[np->state], np);
 #endif
@@ -405,7 +401,7 @@ exit(void)
   }
 
   if(stateListRemove(&ptable.list[curproc->state], curproc) < 0)
-    panic("Process not found when removing from state list");
+    panic("Process not found when removing from state list (exit)");
   assertState(curproc, RUNNING, __FUNCTION__, __LINE__);
   curproc->state = ZOMBIE;
   stateListAdd(&ptable.list[curproc->state], curproc);
@@ -499,7 +495,7 @@ wait(void)
         p->budget = DEFAULT_BUDGET;
 #endif
         if(stateListRemove(&ptable.list[p->state], p) < 0)
-          panic("Process not found when removing from state list");
+          panic("Process not found when removing from state list (wait)");
         assertState(p, ZOMBIE, __FUNCTION__, __LINE__);
         p->state = UNUSED;
         stateListAdd(&ptable.list[p->state], p);
@@ -563,6 +559,74 @@ wait(void)
 }
 #endif
 
+#ifdef CS333_P4
+static void
+assertPriority(struct proc * p, int prio, const char * func, int line)
+{
+  if(p->prio == prio)
+    return;
+  cprintf("Error: proc priority is %d and should be %d.\nCalled from %s line %d\n",
+      p->prio, prio, func, line);
+  panic("Error: Process priority incorrect in assertPriority()");
+}
+
+/*
+   static void
+   setDefaultBudgets()
+   {
+   struct proc * p;
+
+   for(int i = MAXPRIO - 1; i >= 0; --i) {
+   for(p = ptable.ready[i].head; p != NULL; p = p->next)
+   p->budget = DEFAULT_BUDGET;
+   }
+   }
+   */
+
+static void
+promoteAllProcs(void)
+{
+  for(int i = MAXPRIO; i >= 1; --i) {
+    //No processes in the next lowest priority queue to promote.
+    if(!ptable.ready[i - 1].head)
+      continue;
+
+    //Increase the prio values for all the process about to be placed
+    //in a higher prio list. Set default budgets as well.
+    for(struct proc * p = ptable.ready[i - 1].head; p != NULL; p = p->next) {
+      ++(p->prio);
+      p->budget = DEFAULT_BUDGET;
+    }
+
+    //List is empty so add at head.
+    if(!ptable.ready[i].head)
+      ptable.ready[i].head = ptable.ready[i - 1].head;
+
+    //List is not empty, so add at the end (tail->next).
+    else
+      ptable.ready[i].tail->next = ptable.ready[i - 1].head;
+
+    ptable.ready[i].tail = ptable.ready[i - 1].tail;
+
+    ptable.ready[i - 1].head = NULL;
+    ptable.ready[i - 1].tail = NULL;
+  }
+
+  for(int i = SLEEPING; i <= RUNNING; ++i) {
+    if(i == RUNNABLE)
+      continue;
+
+    for(struct proc * p = ptable.list[i].head; p != NULL; p = p->next) {
+      if(p->prio != MAXPRIO)
+      {
+        ++(p->prio);
+        p->budget = DEFAULT_BUDGET;
+      }
+    }
+  }
+}
+#endif
+
 //PAGEBREAK: 42
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
@@ -575,7 +639,7 @@ wait(void)
 void
 scheduler(void)
 {
-  struct proc *p;
+  struct proc *p = NULL;
   struct cpu *c = mycpu();
   c->proc = 0;
 #ifdef PDX_XV6
@@ -607,10 +671,9 @@ scheduler(void)
     //I will represent the prio of the queue that the process to run
     //was found on (if one was found at all).
     int i;
-    struct proc * p = NULL;
 
     //Try to find a process to run.
-    for(i = MAXPRIO; !p && i >= 0; --i) {
+    for(i = MAXPRIO; i >= 0; --i) {
       p = ptable.ready[i].head;
       if(p)
         break;
@@ -626,10 +689,10 @@ scheduler(void)
 #endif // PDX_XV6
       c->proc = p;
       switchuvm(p);
-      if(stateListRemove(&ptable.list[p->prio], p) < 0)
-        panic("Process not found when removing from state list");
+      if(stateListRemove(&ptable.ready[p->prio], p) < 0)
+        panic("Process not found when removing from state list (scheduler)");
       assertState(p, RUNNABLE, __FUNCTION__, __LINE__);
-      
+
       //This next line of code is to assert that it was on the correct
       //priority queue. I is the priority queue it was pulled off of
       //from the above for loop.
@@ -657,6 +720,7 @@ scheduler(void)
 #endif // PDX_XV6
   }
 }
+
 #elif defined(CS333_P3)
 void
 scheduler(void)
@@ -781,10 +845,6 @@ sched(void)
   int intena;
   struct proc *p = myproc();
 
-#ifdef CS333_P2
-  p->cpu_ticks_total += ticks - p->cpu_ticks_in;
-#endif  //CS333_P2
-
   if(!holding(&ptable.lock))
     panic("sched ptable.lock");
   if(mycpu()->ncli != 1)
@@ -794,6 +854,11 @@ sched(void)
   if(readeflags()&FL_IF)
     panic("sched interruptible");
   intena = mycpu()->intena;
+
+#ifdef CS333_P2
+  p->cpu_ticks_total += ticks - p->cpu_ticks_in;
+#endif  //CS333_P2
+
   swtch(&p->context, mycpu()->scheduler);
   mycpu()->intena = intena;
 }
@@ -807,17 +872,27 @@ yield(void)
 
   acquire(&ptable.lock);  //DOC: yieldlock
   if(stateListRemove(&ptable.list[curproc->state], curproc) < 0)
-    panic("Process not found when removing from state list");
+    panic("Process not found when removing from state list yield)");
   assertState(curproc, RUNNING, __FUNCTION__, __LINE__);
   curproc->state = RUNNABLE;
 #ifdef CS333_P4
+  curproc->budget -= ticks - curproc->cpu_ticks_in;
+  if(curproc->budget <= 0) {
+    if(curproc->prio > 0)
+    {
+      --(curproc->prio);
+    }
+    curproc->budget = DEFAULT_BUDGET;
+  }
   stateListAdd(&ptable.ready[curproc->prio], curproc);
 #else
   stateListAdd(&ptable.list[curproc->state], curproc);
 #endif
+
   sched();
   release(&ptable.lock);
 }
+
 #else
 void
 yield(void)
@@ -877,10 +952,19 @@ sleep(void *chan, struct spinlock *lk)
   p->chan = chan;
 
   if(stateListRemove(&ptable.list[p->state], p) < 0)
-    panic("Process not found when removing from state list");
+    panic("Process not found when removing from state list (sleep)");
   assertState(p, RUNNING, __FUNCTION__, __LINE__);
   p->state = SLEEPING;
   stateListAdd(&ptable.list[p->state], p);
+
+#ifdef CS333_P4
+  p->budget -= ticks - p->cpu_ticks_in;
+  if(p->budget <= 0) {
+    if(p->prio > 0)
+      --(p->prio);
+    p->budget = DEFAULT_BUDGET;
+  }
+#endif
 
   sched();
 
@@ -941,7 +1025,7 @@ wakeup1(void *chan)
   for(p = ptable.list[SLEEPING].head; p && p != ptable.list[SLEEPING].tail->next; p = p->next) {
     if(p->chan == chan) {
       if(stateListRemove(&ptable.list[p->state], p) < 0)
-        panic("Process not found when removing from state list");
+        panic("Process not found when removing from state list (wakeup1)");
       assertState(p, SLEEPING, __FUNCTION__, __LINE__);
       p->state = RUNNABLE;
 #ifdef CS333_P4
@@ -979,36 +1063,86 @@ wakeup(void *chan)
 // Kill the process with the given pid.
 // Process won't exit until it returns
 // to user space (see trap in trap.c).
-#ifdef CS333_P3
+#if defined(CS333_P4)
 int
 kill(int pid)
 {
   struct proc *p;
 
   acquire(&ptable.lock);
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    if(p->pid == pid){
-      p->killed = 1;
-      // Wake process from sleep if necessary.
-      if(p->state == SLEEPING) {
-        if(stateListRemove(&ptable.list[p->state], p) < 0)
-          panic("Process not found when removing from state list");
-        assertState(p, SLEEPING, __FUNCTION__, __LINE__);
-        p->state = RUNNABLE;
 
-#ifdef CS333_P4
-        stateListAdd(&ptable.ready[p->prio], p);
-#else
-        stateListAdd(&ptable.list[p->state], p);
-#endif
+  for(int i = EMBRYO; i <= RUNNING; ++i) {
+    if(i == RUNNABLE)
+      break;
+    for(p = ptable.list[i].head; p != NULL; p = p->next) {
+      if(p->pid == pid){
+        p->killed = 1;
+        // Wake process from sleep if necessary.
+        if(p->state == SLEEPING) {
+          if(stateListRemove(&ptable.list[p->state], p) < 0)
+            panic("Process not found when removing from state list (kill)");
+          assertState(p, SLEEPING, __FUNCTION__, __LINE__);
+          p->state = RUNNABLE;
+          p->prio = MAXPRIO;
+          p->budget = DEFAULT_BUDGET;
+          stateListAdd(&ptable.ready[p->prio], p);
+        }
+        release(&ptable.lock);
+        return 0;
       }
-      release(&ptable.lock);
-      return 0;
+    }
+
+    if(p == ptable.list[i].tail)
+      break;
+  }
+
+  for(int j = MAXPRIO; j >= 0; --j) {
+    for(p = ptable.ready[j].head; p != NULL; p = p->next) {
+      if(p->pid == pid){
+        p->killed = 1;
+        release(&ptable.lock);
+        return 0;
+      }
     }
   }
+
   release(&ptable.lock);
   return -1;
 }
+
+#elif defined(CS333_P3)
+int
+kill(int pid)
+{
+  struct proc *p;
+
+  acquire(&ptable.lock);
+
+  for(int i = EMBRYO; i <= RUNNING; ++i) {
+    for(p = ptable.list[i].head; p != NULL; p = p->next) {
+      if(p->pid == pid){
+        p->killed = 1;
+        // Wake process from sleep if necessary.
+        if(p->state == SLEEPING) {
+          if(stateListRemove(&ptable.list[p->state], p) < 0)
+            panic("Process not found when removing from state list (kill)");
+          assertState(p, SLEEPING, __FUNCTION__, __LINE__);
+          p->state = RUNNABLE;
+          stateListAdd(&ptable.list[p->state], p);
+        }
+        release(&ptable.lock);
+        return 0;
+      }
+    }
+
+    if(p == ptable.list[i].tail)
+      break;
+  }
+
+  release(&ptable.lock);
+  return -1;
+}
+
 #else
 int
 kill(int pid)
@@ -1255,6 +1389,9 @@ get_procs(int max, struct uproc *table)
       table[count].ppid = p->pid;
     else
       table[count].ppid = p->parent->pid;
+#ifdef CS333_P4
+    table[count].priority = p->prio;
+#endif
     table[count].elapsed_ticks = ticks - p->start_ticks;
     table[count].CPU_total_ticks= p->cpu_ticks_total;
     strncpy(table[count].state, state, (strlen(state) + 1));
@@ -1370,63 +1507,6 @@ assertState(struct proc *p, enum procstate state, const char * func, int line)
   panic("Error: Process state incorrect in assertState()");
 }
 
-#ifdef CS333_P4
-static void
-assertPriority(struct proc * p, int prio, const char * func, int line)
-{
-  if(p->prio == prio)
-    return;
-  cprintf("Error: proc priority is %d and should be %d.\nCalled from %s line %d\n",
-      p->prio, prio, func, line);
-  panic("Error: Process priority incorrect in assertPriority()");
-}
-
-/*
-static void
-setDefaultBudgets()
-{
-  struct proc * p;
-
-  for(int i = MAXPRIO - 1; i >= 0; --i) {
-    for(p = ptable.ready[i].head; p != NULL; p = p->next;)
-      p->budget = DEFAULT_BUDGET;
-  }
-}
-*/
-
-static void
-promoteAllProcs()
-{
-  struct proc * p;
-
-  for(int i = MAXPRIO; i >= 1; --i) {
-    //No processes in the next lowest priority queue to promote.
-    if(!ptable.ready[i - 1].head)
-      continue;
-
-    //Increase the prio values for all the process about to be placed
-    //in a higher prio list. Set default budgets as well.
-    for(p = ptable.ready[i - 1].head; p != NULL; p = p->next) {
-      ++p->prio;
-      p->budget = DEFAULT_BUDGET;
-    }
-
-    //List is empty so add at head.
-    if(!ptable.ready[i].head)
-      ptable.ready[i].head = ptable.ready[i - 1].head;
-
-    //List is not empty, so add at the end (tail->next).
-    else
-      ptable.ready[i].tail->next = ptable.ready[i - 1].head;
-    
-    ptable.ready[i].tail = ptable.ready[i - 1].tail;
-
-    ptable.ready[i - 1].head = NULL;
-    ptable.ready[i - 1].tail = NULL;
-  }
-}
-#endif
-
 void
 proc_free(void)
 {
@@ -1445,6 +1525,38 @@ proc_free(void)
   cprintf("Free List Size: %d Processes\n$ ", count);
 }
 
+#ifdef CS333_P4
+void
+proc_ready(void)
+{
+  acquire(&ptable.lock);
+
+  struct proc * p = NULL;
+
+  cprintf("Ready list proccesses:\n");
+
+  for(int i = MAXPRIO; i >= 0; --i) {
+
+    cprintf("Priority %d: ", i);
+
+    for(p = ptable.ready[i].head; p != NULL; p = p->next) {
+      cprintf("(%d, %d)", p->pid, p->budget);
+
+      if(p == ptable.ready[i].tail)
+        break;
+      else
+        cprintf(" -> ");
+    }
+
+    cprintf("\n");
+  }
+
+  release(&ptable.lock);
+
+  cprintf("\n$ ");
+}
+
+#else
 void
 proc_ready(void)
 {
@@ -1470,6 +1582,7 @@ proc_ready(void)
 
   cprintf("\n$ ");
 }
+#endif
 
 void
 proc_sleep(void)
@@ -1525,7 +1638,7 @@ proc_zombie(void)
 #endif
 
 #ifdef CS333_P4
-static void
+static struct proc *
 retrieveFromList(struct proc * head, int pid)
 {
   while(head)
@@ -1554,13 +1667,13 @@ get_priority(int pid)
   {
     p = retrieveFromList(ptable.ready[i].head, pid);
     if(p)
-      break
+      break;
   }
 
   if(!p)
   {
     //Check to see if it is in the running list.
-    for(int i = EMBRYO; i <= ZOMBIE; ++i)
+    for(int i = SLEEPING; i <= RUNNING; ++i)
     {
       //Already checked the ready/runnable lists.
       if(i == RUNNABLE)
@@ -1578,7 +1691,7 @@ get_priority(int pid)
     release(&ptable.lock);
     return -1;
   }
-      
+
   int toReturn = p->prio;
   release(&ptable.lock);
   return toReturn;
@@ -1592,44 +1705,59 @@ set_priority(int pid, int prio)
   //Also, test to make sure the priority value passed in is valid as well.
   if(pid < 0 || pid > 32767 || prio < 0 || prio > MAXPRIO)
     return -1;
-  
+
   struct proc * p = NULL;
-  
+
   acquire(&ptable.lock);
 
   //Check first to see if the process is in one of the ready lists.
   for(int i = MAXPRIO; i >= 0; --i)
   {
     p = retrieveFromList(ptable.ready[i].head, pid);
-    if(p)
-    {
+    if(p) {
+      if(p->prio == prio) {
+        release(&ptable.lock);
+        return 0;
+      }
+      if(stateListRemove(&ptable.ready[p->prio], p) < 0)
+        panic("Process not found when removing from state list (scheduler)");
+      assertState(p, RUNNABLE, __FUNCTION__, __LINE__);
+      
+      //This next line of code is to assert that it was on the correct
+      //priority queue. I is the priority queue it was pulled off of
+      //from the above for loop.
+      assertPriority(p, i, __FUNCTION__, __LINE__);
+
       p->prio = prio;
+      p->budget = DEFAULT_BUDGET;
+      stateListAdd(&ptable.ready[p->prio], p);
       release(&ptable.lock);
       return 0;
     }
   }
 
   //Check to see if it is in the running list.
-  for(int i = EMBRYO; i <= ZOMBIE; ++i)
+  for(int i = SLEEPING; i <= RUNNING; ++i)
   {
     //Already checked the ready/runnable lists.
     if(i == RUNNABLE)
       continue;
     p = retrieveFromList(ptable.list[i].head, pid);
-    if(p)
-      break;
+    if(p) {
+      if(p->prio == prio) {
+        release(&ptable.lock);
+        return 0;
+      }
+      p->prio = prio;
+      p->budget = DEFAULT_BUDGET;
+      release(&ptable.lock);
+      return 0;
+    }
   }
-  
+
   //After going through all the lists, there was not an active process
   //found with the pid passed in.
-  if(!p)
-  {
-    release(&ptable.lock);
-    return -1;
-  }
-      
-  p->prio = prio;
   release(&ptable.lock);
-  return 0;
+  return -1;
 }
 #endif
